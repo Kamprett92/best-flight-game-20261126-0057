@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skyline Courier — a low-poly flight game</title>
+<style>
+  :root {
+    --amber: #ffc93c;
+    --green: #7dff9e;
+    --red: #ff5d5d;
+    --glass: rgba(8, 18, 28, 0.72);
+    --line: rgba(255, 201, 60, 0.35);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a141d; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #eef4f8; }
+  #game-container, #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 5; }
+  #hud.on { display: block; }
+  .panel {
+    position: absolute;
+    background: var(--glass);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    backdrop-filter: blur(2px);
+    box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  }
+  .label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #9db8c8; }
+  .value { font-family: "Consolas", "SF Mono", monospace; font-size: 24px; font-weight: 700; color: var(--amber); text-shadow: 0 0 12px rgba(255, 201, 60, 0.45); line-height: 1.1; }
+  .value.green { color: var(--green); text-shadow: 0 0 12px rgba(125, 255, 158, 0.4); }
+  #hud-alt-box { top: 14px; left: 14px; min-width: 132px; }
+  #hud-spd-box { top: 14px; left: 162px; min-width: 132px; }
+  #hud-hdg-box { top: 14px; left: 310px; min-width: 150px; }
+  #hud-compass-wrap { top: 14px; left: 50%; transform: translateX(-50%); width: 260px; height: 44px; overflow: hidden; }
+  #hud-compass { position: relative; width: 100%; height: 100%; }
+  #hud-compass .tick { position: absolute; top: 50%; transform: translate(-50%, -50%); font-family: "Consolas", monospace; font-size: 15px; font-weight: 700; color: var(--amber); }
+  #hud-compass-wrap::after { content: "▲"; position: absolute; left: 50%; top: 0; transform: translateX(-50%); color: var(--red); font-size: 13px; }
+  #hud-score-box { top: 14px; right: 14px; min-width: 150px; text-align: right; }
+  #hud-goal-box { top: 88px; right: 14px; max-width: 320px; text-align: right; }
+  #hud-goal { font-size: 14px; color: #eef4f8; line-height: 1.35; }
+  #hud-time { font-family: "Consolas", monospace; font-size: 18px; color: var(--green); margin-top: 4px; }
+  #hud-thr-box { left: 14px; bottom: 14px; min-width: 170px; }
+  #hud-fuel-box { left: 200px; bottom: 14px; width: 210px; }
+  #hud-dmg-box { right: 14px; bottom: 14px; width: 210px; }
+  .bar { height: 12px; margin-top: 6px; background: rgba(255, 255, 255, 0.12); border-radius: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2fae5f, #7dff9e); border-radius: 6px; transition: width 0.2s linear; }
+  .bar-fill.dmg { background: linear-gradient(90deg, #e8a13c, #ff5d5d); }
+  .bar-fill.low { background: linear-gradient(90deg, #e83c3c, #ff5d5d); animation: blink 0.8s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.45; } }
+  #hud-msg {
+    position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%);
+    font-size: 19px; font-weight: 600; color: #fff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+    background: var(--glass); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 18px; opacity: 0; transition: opacity 0.35s; white-space: nowrap;
+  }
+  #hud-warn {
+    position: absolute; left: 50%; top: 96px; transform: translateX(-50%);
+    font-size: 17px; font-weight: 700; color: #ffd2d2; background: rgba(120, 10, 10, 0.72);
+    border: 1px solid rgba(255, 93, 93, 0.6); border-radius: 8px; padding: 7px 16px;
+    animation: blink 0.9s steps(2) infinite; white-space: nowrap;
+  }
+  #hud-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 22px; color: rgba(255, 255, 255, 0.65); text-shadow: 0 0 6px rgba(0,0,0,0.7); }
+
+  /* ---------- Overlays (title / pause / end) ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    background: radial-gradient(ellipse at center, rgba(6, 16, 26, 0.25) 0%, rgba(6, 16, 26, 0.78) 100%);
+  }
+  .overlay.on { display: flex; }
+  .card {
+    background: var(--glass); border: 1px solid var(--line); border-radius: 14px;
+    padding: 30px 38px; max-width: 620px; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  }
+  .card h1 { font-size: 44px; letter-spacing: 0.04em; color: var(--amber); text-shadow: 0 0 24px rgba(255, 201, 60, 0.4); }
+  .card h2 { font-size: 26px; color: var(--amber); margin-bottom: 8px; }
+  .card p { font-size: 15px; line-height: 1.55; color: #cfe0ea; margin: 10px 0; }
+  .card .sub { font-size: 13px; color: #9db8c8; letter-spacing: 0.08em; text-transform: uppercase; }
+  .missions { display: flex; gap: 12px; margin: 18px 0 6px; }
+  .mission-btn {
+    flex: 1; cursor: pointer; text-align: left; color: #eef4f8;
+    background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 10px; padding: 12px 14px; font-family: inherit;
+  }
+  .mission-btn:hover, .mission-btn.sel { border-color: var(--amber); background: rgba(255, 201, 60, 0.12); }
+  .mission-btn b { display: block; font-size: 16px; color: var(--amber); margin-bottom: 4px; }
+  .mission-btn span { font-size: 12.5px; line-height: 1.4; color: #cfe0ea; }
+  .big-btn {
+    cursor: pointer; margin-top: 16px; padding: 12px 34px; font-size: 17px; font-weight: 700;
+    color: #1a1200; background: var(--amber); border: none; border-radius: 10px; font-family: inherit;
+  }
+  .big-btn:hover { filter: brightness(1.1); }
+  .keys { font-size: 12.5px; color: #9db8c8; line-height: 1.8; margin-top: 14px; }
+  .keys b { color: #eef4f8; font-family: "Consolas", monospace; }
+  #end-score { font-family: "Consolas", monospace; font-size: 34px; color: var(--green); margin: 6px 0; }
+  #end-detail { font-size: 14px; color: #cfe0ea; }
+</style>
+</head>
+<body>
+<div id="game-container"><canvas id="c"></canvas></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="panel" id="hud-alt-box"><div class="label">Altitude</div><div class="value" id="hud-alt">0 m</div></div>
+  <div class="panel" id="hud-spd-box"><div class="label">Airspeed</div><div class="value" id="hud-spd">0 km/h</div></div>
+  <div class="panel" id="hud-hdg-box"><div class="label">Heading</div><div class="value" id="hud-hdg">000° N</div></div>
+  <div class="panel" id="hud-compass-wrap"><div id="hud-compass"></div></div>
+  <div class="panel" id="hud-score-box"><div class="label">Score</div><div class="value green" id="hud-score">0</div></div>
+  <div class="panel" id="hud-goal-box"><div class="label">Mission</div><div id="hud-goal"></div><div id="hud-time"></div></div>
+  <div class="panel" id="hud-thr-box"><div class="label">Throttle</div><div class="value" id="hud-thr">0%</div></div>
+  <div class="panel" id="hud-fuel-box"><div class="label">Fuel</div><div class="bar"><div class="bar-fill" id="hud-fuelbar"></div></div></div>
+  <div class="panel" id="hud-dmg-box"><div class="label">Damage</div><div class="bar"><div class="bar-fill dmg" id="hud-dmgbar"></div></div></div>
+  <div id="hud-cross">＋</div>
+  <div id="hud-msg"></div>
+  <div id="hud-warn" style="display:none"></div>
+</div>
+
+<!-- Title screen -->
+<div class="overlay on" id="title-screen">
+  <div class="card">
+    <div class="sub">A low-poly flight game</div>
+    <h1>SKYLINE COURIER</h1>
+    <p>Fly the mail plane across a wild island. Thread the rings, mind your fuel, and bring her home in one piece.</p>
+    <div class="missions" id="mission-list">
+      <button class="mission-btn sel" data-mission="rings"><b>① Ring Run</b><span>Thread all six sky rings in order, fast and clean.</span></button>
+      <button class="mission-btn" data-mission="landing"><b>② Runway Return</b><span>Take off, circle the island, land gently on the strip.</span></button>
+      <button class="mission-btn" data-mission="beacons"><b>③ Beacon Dash</b><span>Collect eight beacons before the 150&nbsp;s clock runs out.</span></button>
+    </div>
+    <button class="big-btn" id="fly-btn">Take off ✈</button>
+    <div class="keys">
+      <b>↑ / W</b> pitch up &nbsp; <b>↓ / S</b> pitch down &nbsp; <b>← → / A D</b> bank &amp; turn<br>
+      <b>Shift</b> throttle up &nbsp; <b>Ctrl</b> throttle down &nbsp; <b>Space</b> air brake<br>
+      <b>Mouse wheel</b> trim throttle &nbsp; <b>P</b> pause &nbsp; <b>R</b> restart &nbsp; <b>M</b> mute<br>
+      <b>1 2 3</b> pick a mission
+    </div>
+  </div>
+</div>
+
+<!-- Pause -->
+<div class="overlay" id="pause-screen">
+  <div class="card">
+    <h2>Paused</h2>
+    <p>The courier waits on the wind. Press <b>P</b> to keep flying, or <b>R</b> to restart the sortie.</p>
+    <button class="big-btn" id="resume-btn">Resume</button>
+  </div>
+</div>
+
+<!-- End of sortie -->
+<div class="overlay" id="end-screen">
+  <div class="card">
+    <div class="sub" id="end-kind">Sortie complete</div>
+    <h2 id="end-title">Mission complete!</h2>
+    <div id="end-score">0</div>
+    <p id="end-detail"></p>
+    <button class="big-btn" id="again-btn">Fly again</button>
+    <div class="keys">Press <b>R</b> to restart &nbsp;·&nbsp; <b>1 2 3</b> to pick another mission</div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
